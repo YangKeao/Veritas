@@ -2,7 +2,7 @@ use std::sync::RwLock;
 use veritas::*;
 
 struct WrongStack {
-    data: RwLock<Vec<u32>>
+    data: RwLock<Vec<u32>>,
 }
 #[derive(Copy, Clone)]
 struct StackAction {}
@@ -17,13 +17,13 @@ struct PushAction {
     data: u32,
 }
 impl Action for StackAction {
-    type Request=StackRequest;
-    type Response=u32;
+    type Request = StackRequest;
+    type Response = u32;
 }
 impl WrongStack {
     fn new(v: Vec<u32>) -> Self {
         Self {
-            data: RwLock::new(v)
+            data: RwLock::new(v),
         }
     }
     fn push(&self, data: u32) -> u32 {
@@ -36,11 +36,12 @@ impl Runner<StackAction> for WrongStack {
     fn init() -> Self {
         WrongStack::new(Vec::new())
     }
-    fn invoke(&self, action: <StackAction as Action>::Request) -> <StackAction as Action>::Response {
+    fn invoke(
+        &self,
+        action: <StackAction as Action>::Request,
+    ) -> <StackAction as Action>::Response {
         match action {
-            StackRequest::PushAction(push_action) => {
-                self.push(push_action.data)
-            }
+            StackRequest::PushAction(push_action) => self.push(push_action.data),
             StackRequest::PopAction => {
                 100 // Return 100 constantly
             }
@@ -49,12 +50,12 @@ impl Runner<StackAction> for WrongStack {
 }
 
 struct Stack {
-    data: RwLock<Vec<u32>>
+    data: RwLock<Vec<u32>>,
 }
 impl Stack {
     fn new(v: Vec<u32>) -> Self {
         Self {
-            data: RwLock::new(v)
+            data: RwLock::new(v),
         }
     }
     fn push(&self, data: u32) -> u32 {
@@ -69,14 +70,13 @@ impl Runner<StackAction> for Stack {
     fn init() -> Self {
         Stack::new(Vec::new())
     }
-    fn invoke(&self, action: <StackAction as Action>::Request) -> <StackAction as Action>::Response {
+    fn invoke(
+        &self,
+        action: <StackAction as Action>::Request,
+    ) -> <StackAction as Action>::Response {
         match action {
-            StackRequest::PushAction(push_action) => {
-                self.push(push_action.data)
-            }
-            StackRequest::PopAction => {
-                self.pop()
-            }
+            StackRequest::PushAction(push_action) => self.push(push_action.data),
+            StackRequest::PopAction => self.pop(),
         }
     }
 }
@@ -95,9 +95,7 @@ fn single_thread_stack_test() {
     let mut checker: Checker<StackAction, Vec<u32>, Stack, WrongStack> = Checker::new();
     let mut history = Vec::new();
     for i in 0..100 {
-        history.push(StackRequest::PushAction(PushAction {
-            data: i
-        }));
+        history.push(StackRequest::PushAction(PushAction { data: i }));
         history.push(StackRequest::PopAction);
     }
     checker.add_thread(history);
