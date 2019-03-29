@@ -150,7 +150,7 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
                                 model.get_state(),
                                 self.check_runner.clone(),
                             );
-                            let res = self.check_runner.run(sub_checker);
+                            let res = self.check_runner.run(sub_checker);// TODO: main thread will block at here. `Future` may be needed for this situation.
 
                             if res {
                                 ret = true;
