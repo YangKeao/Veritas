@@ -7,7 +7,7 @@ use std::sync::RwLock;
 use veritas::*;
 
 struct QueueRunner {
-    queue: ArrayQueue<u32>
+    queue: ArrayQueue<u32>,
 }
 #[derive(Copy, Clone)]
 struct QueueAction {}
@@ -18,39 +18,51 @@ enum QueueRequest {
     PopAction,
 }
 impl Action for QueueAction {
-    type Request= QueueRequest;
-    type Response=u32;
+    type Request = QueueRequest;
+    type Response = u32;
 }
 
 impl Runner<QueueAction> for QueueRunner {
     fn init() -> Self {
         Self {
-            queue: ArrayQueue::new(1024)
+            queue: ArrayQueue::new(1024),
         }
     }
 
-    fn invoke(&self, action: <QueueAction as Action>::Request) -> <QueueAction as Action>::Response {
+    fn invoke(
+        &self,
+        action: <QueueAction as Action>::Request,
+    ) -> <QueueAction as Action>::Response {
         match action {
-            QueueRequest::PushAction(val) => {self.queue.push(val).unwrap(); return val;},
-            QueueRequest::PopAction => self.queue.pop().unwrap_or(0)
+            QueueRequest::PushAction(val) => {
+                self.queue.push(val).unwrap();
+                return val;
+            }
+            QueueRequest::PopAction => self.queue.pop().unwrap_or(0),
         }
     }
 }
 
 struct QueueModel {
-    queue: RwLock<VecDeque<u32>>
+    queue: RwLock<VecDeque<u32>>,
 }
 impl Runner<QueueAction> for QueueModel {
     fn init() -> Self {
         Self {
-            queue: RwLock::new(VecDeque::new())
+            queue: RwLock::new(VecDeque::new()),
         }
     }
 
-    fn invoke(&self, action: <QueueAction as Action>::Request) -> <QueueAction as Action>::Response {
+    fn invoke(
+        &self,
+        action: <QueueAction as Action>::Request,
+    ) -> <QueueAction as Action>::Response {
         match action {
-            QueueRequest::PushAction(val) => {self.queue.write().unwrap().push_back(val); return val;},
-            QueueRequest::PopAction => self.queue.write().unwrap().pop_front().unwrap_or(0)
+            QueueRequest::PushAction(val) => {
+                self.queue.write().unwrap().push_back(val);
+                return val;
+            }
+            QueueRequest::PopAction => self.queue.write().unwrap().pop_front().unwrap_or(0),
         }
     }
 }
@@ -61,7 +73,7 @@ impl Model<QueueAction, VecDeque<u32>> for QueueModel {
 
     fn from_state(state: &VecDeque<u32>) -> Self {
         Self {
-            queue: RwLock::new(state.clone())
+            queue: RwLock::new(state.clone()),
         }
     }
 }
@@ -78,14 +90,14 @@ fn crossbeam_queue_single_thread_test() {
     checker.add_thread(pop_history);
     checker.finish_prepare();
 
-    assert!(checker.check(VecDeque::new()));
+    assert!(checker.check(VecDeque::new(), 4));
 }
 
 #[test]
 fn crossbeam_queue_multiple_thread_test() {
     let mut checker: Checker<QueueAction, VecDeque<u32>, QueueModel, QueueRunner> = Checker::new();
     let mut histories = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..1 {
         let mut history = Vec::new();
         for i in 0..12 {
             history.push(QueueRequest::PushAction(i));
@@ -100,5 +112,5 @@ fn crossbeam_queue_multiple_thread_test() {
         checker.add_thread(history);
     }
     checker.finish_prepare();
-    assert!(checker.check(VecDeque::new()));
+    assert!(checker.check(VecDeque::new(), 4));
 }
