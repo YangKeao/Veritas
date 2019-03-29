@@ -15,14 +15,14 @@ pub trait Action: Copy + Clone + 'static {
     type Response: Copy + Clone + Send + Sync + PartialEq + Default;
 }
 
-pub trait Model<A: Action, S>: Send + Sync + 'static {
+pub trait Runner<A: Action>: Send + Sync + 'static {
     fn init() -> Self;
-
-    fn get_state(&self) -> S;
-
-    fn from_state(state: &S) -> Self;
-
     fn invoke(&self, action: A::Request) -> A::Response;
+}
+
+pub trait Model<A: Action, S>: Send + Sync + Runner<A> + 'static {
+    fn get_state(&self) -> S;
+    fn from_state(state: &S) -> Self;
 }
 
 #[derive(Copy, Clone)]
@@ -37,7 +37,7 @@ pub struct Entry<A: Action> {
     data: EntryData<A>,
 }
 
-pub struct Checker<A: Action, S, M: Model<A, S>, R: Model<A, S>> {
+pub struct Checker<A: Action, S, M: Model<A, S>, R: Runner<A>> {
     runner: Arc<R>,
     threads: Vec<Option<JoinHandle<()>>>,
     history: Arc<RwLock<Vec<Entry<A>>>>,
@@ -113,7 +113,7 @@ impl<A: Action, S, M: Model<A, S>> ImmutableChecker<A, S, M> {
     }
 }
 
-impl<A: Action, S, M: Model<A, S>, R: Model<A, S>> Checker<A, S, M, R> {
+impl<A: Action, S, M: Model<A, S>, R: Runner<A>> Checker<A, S, M, R> {
     pub fn new() -> Self {
         let (s, r) = unbounded();
         let history = Arc::new(RwLock::new(Vec::new()));
@@ -218,19 +218,10 @@ mod test {
         }
     }
 
-    impl Model<StackAction, Vec<u32>> for Stack {
+    impl Runner<StackAction> for Stack {
         fn init() -> Self {
             Stack::new(Vec::new())
         }
-
-        fn get_state(&self) -> Vec<u32> {
-            self.data.read().unwrap().clone()
-        }
-
-        fn from_state(state: &Vec<u32>) -> Self {
-            Stack::new(state.clone())
-        }
-
         fn invoke(&self, action: <StackAction as Action>::Request) -> <StackAction as Action>::Response {
             match action {
                 StackRequest::PushAction(push_action) => {
@@ -240,6 +231,16 @@ mod test {
                     self.pop()
                 }
             }
+        }
+    }
+
+    impl Model<StackAction, Vec<u32>> for Stack {
+        fn get_state(&self) -> Vec<u32> {
+            self.data.read().unwrap().clone()
+        }
+
+        fn from_state(state: &Vec<u32>) -> Self {
+            Stack::new(state.clone())
         }
     }
 
