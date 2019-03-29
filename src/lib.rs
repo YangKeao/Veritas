@@ -100,8 +100,6 @@ impl<A: Action, S, M: Model<A, S>> ImmutableChecker<A, S, M> {
                             ret = true;
                             break;
                         }
-                    } else {
-                        continue;
                     }
                 }
                 _ => {
