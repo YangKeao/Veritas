@@ -167,9 +167,6 @@ impl<A: Action, S, M: Model<A, S>, R: Runner<A>> Checker<A, S, M, R> {
         })));
     }
     pub fn check(&mut self, init_state: S) -> bool {
-        for thread in self.threads.iter_mut() {
-            thread.take().unwrap().join().unwrap();
-        }
         let history = Vector::from(self.history.read().unwrap().clone());
         let im_checker: ImmutableChecker<A, S, M> = ImmutableChecker::new(history, init_state);
 
@@ -177,6 +174,9 @@ impl<A: Action, S, M: Model<A, S>, R: Runner<A>> Checker<A, S, M, R> {
     }
     pub fn finish_prepare(&mut self) {
         drop(self.entry_sender.take().unwrap());
+        for thread in self.threads.iter_mut() {
+            thread.take().unwrap().join().unwrap();
+        }
     }
 }
 
