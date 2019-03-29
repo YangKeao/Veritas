@@ -1,7 +1,7 @@
 extern crate crossbeam_channel;
 extern crate im;
 
-use crossbeam_channel::{unbounded, Sender};
+use crossbeam_channel::{unbounded, Sender, bounded};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -20,7 +20,7 @@ pub trait Runner<A: Action>: Send + Sync + 'static {
     fn invoke(&self, action: A::Request) -> A::Response;
 }
 
-pub trait Model<A: Action, S: Sync + Send + 'static>: Send + Sync + Runner<A> + 'static {
+pub trait Model<A: Action, S: Sync + Send + Clone + 'static>: Send + Sync + Runner<A> + 'static {
     fn get_state(&self) -> S;
     fn from_state(state: &S) -> Self;
 }
@@ -37,7 +37,7 @@ pub struct Entry<A: Action> {
     data: EntryData<A>,
 }
 
-pub struct Checker<A: Action, S: Sync + Send + 'static, M: Model<A, S>, R: Runner<A>> {
+pub struct Checker<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, R: Runner<A>> {
     runner: Arc<R>,
     threads: Vec<Option<JoinHandle<()>>>,
     history: Arc<RwLock<Vec<Entry<A>>>>,
@@ -48,19 +48,19 @@ pub struct Checker<A: Action, S: Sync + Send + 'static, M: Model<A, S>, R: Runne
     _p3: PhantomData<M>,
 }
 
-pub struct CheckerRunner<A: Action, S: Sync + Send + 'static, M: Model<A, S>> {
+pub struct CheckerRunner<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> {
     sender: Sender<(ImmutableChecker<A, S, M>, Sender<bool>)>
 }
-impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> CheckerRunner<A, S, M> {
+impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> CheckerRunner<A, S, M> {
     fn new(thread_num: usize) -> Self {
-        let (s, r) = unbounded::<(ImmutableChecker<A, S, M>, Sender<bool>)>();
+        let (s, r) = bounded::<(ImmutableChecker<A, S, M>, Sender<bool>)>(0);
         for _ in 0..thread_num {
             let receiver = r.clone();
             thread::Builder::new().stack_size(32 * 1024 * 1024).spawn(move || { // TODO: Set stack size carefully
                 loop {
                     match receiver.recv() {
                         Ok((checker, sender)) => {
-                            sender.send(checker.check(false)).unwrap();
+                            sender.send(checker.check()).unwrap();
                         }
                         Err(_) => {break;}
                     }
@@ -73,19 +73,35 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> CheckerRunner<A, S, M>
     }
     fn run(&self, checker: ImmutableChecker<A, S, M>) -> bool {
         let (s, r) = unbounded();
-        self.sender.send((checker, s)).unwrap();
-        r.recv().unwrap()
+        match self.sender.try_send((checker.clone(), s)) {
+            Ok(()) => {
+                r.recv().unwrap()
+            }
+            Err(_) => {
+                checker.check()
+            }
+        }
     }
 }
 
-pub struct ImmutableChecker<A: Action, S: Sync + Send + 'static, M: Model<A, S>> {
+pub struct ImmutableChecker<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> {
     history: Vector<Entry<A>>,
     check_runner: Arc<CheckerRunner<A, S, M>>,
     state: S,
     _p1: PhantomData<M>,
 }
+impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> Clone for ImmutableChecker<A, S, M> {
+    fn clone(&self) -> Self {
+        Self {
+            history: self.history.clone(),
+            check_runner: self.check_runner.clone(),
+            state: self.state.clone(),
+            _p1: PhantomData,
+        }
+    }
+}
 
-impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> ImmutableChecker<A, S, M> {
+impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableChecker<A, S, M> {
     pub fn new(history: Vector<Entry<A>>, state: S, check_runner: Arc<CheckerRunner<A, S, M>>) -> Self {
         Self {
             history,
@@ -94,7 +110,7 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> ImmutableChecker<A, S,
             _p1: PhantomData
         }
     }
-    pub fn check(&self, multithread: bool) -> bool {
+    pub fn check(&self) -> bool {
         let mut ret = false;
         for (index, entry) in self.history.iter().enumerate() {
             match entry.data {
@@ -122,11 +138,7 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> ImmutableChecker<A, S,
                             history.remove(return_index - 1);
 
                             let sub_checker: ImmutableChecker<A, S, M> = ImmutableChecker::new(history, model.get_state(), self.check_runner.clone());
-                            let res = if multithread {
-                                self.check_runner.run(sub_checker) // TODO: It's still one thread! Program stuck here.
-                            } else {
-                                sub_checker.check(false)
-                            };
+                            let res = self.check_runner.run(sub_checker);
 
                             if res {
                                 ret = true;
@@ -147,7 +159,7 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> ImmutableChecker<A, S,
     }
 }
 
-impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>, R: Runner<A>> Checker<A, S, M, R> {
+impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, R: Runner<A>> Checker<A, S, M, R> {
     pub fn new() -> Self {
         let (s, r) = unbounded();
         let history = Arc::new(RwLock::new(Vec::new()));
@@ -205,7 +217,7 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>, R: Runner<A>> Checker<
         let check_runner = Arc::new(CheckerRunner::new(thread_num));
         let im_checker: ImmutableChecker<A, S, M> = ImmutableChecker::new(history, init_state, check_runner.clone());
 
-        im_checker.check(true)
+        im_checker.check()
     }
     pub fn finish_prepare(&mut self) {
         drop(self.entry_sender.take().unwrap());
