@@ -123,7 +123,7 @@ impl<A: Action, S: Sync + Send + 'static, M: Model<A, S>> ImmutableChecker<A, S,
 
                             let sub_checker: ImmutableChecker<A, S, M> = ImmutableChecker::new(history, model.get_state(), self.check_runner.clone());
                             let res = if multithread {
-                                self.check_runner.run(sub_checker)
+                                self.check_runner.run(sub_checker) // TODO: It's still one thread! Program stuck here.
                             } else {
                                 sub_checker.check(false)
                             };

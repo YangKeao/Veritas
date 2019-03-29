@@ -97,7 +97,7 @@ fn crossbeam_queue_single_thread_test() {
 fn crossbeam_queue_multiple_thread_test() {
     let mut checker: Checker<QueueAction, VecDeque<u32>, QueueModel, QueueRunner> = Checker::new();
     let mut histories = Vec::new();
-    for _ in 0..1 {
+    for _ in 0..4 {
         let mut history = Vec::new();
         for i in 0..12 {
             history.push(QueueRequest::PushAction(i));
