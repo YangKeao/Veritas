@@ -1,7 +1,7 @@
 extern crate crossbeam_channel;
 extern crate im;
 
-use crossbeam_channel::{bounded, unbounded, Sender};
+use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 use im::vector::Vector;
 use std::cmp::PartialEq;
 use std::marker::PhantomData;
@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
+
+const STACK_SIZE: usize = 128 * 1024 * 1024;
 
 pub trait Action: Copy + Clone + 'static {
     type Request: Copy + Clone + Send + Sync;
@@ -52,20 +54,25 @@ pub struct Checker<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, 
 
 pub struct CheckerRunner<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> {
     sender: Sender<(ImmutableChecker<A, S, M>, Sender<bool>)>,
+    pub receiver: Receiver<(ImmutableChecker<A, S, M>, Sender<bool>)>,
 }
 impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> CheckerRunner<A, S, M> {
     fn new(thread_num: usize) -> Self {
-        let (s, r) = bounded::<(ImmutableChecker<A, S, M>, Sender<bool>)>(0);
-        for _ in 0..thread_num {
+        let (s, r) = unbounded::<(ImmutableChecker<A, S, M>, Sender<bool>)>();
+        for i in 0..thread_num {
             let receiver = r.clone();
             thread::Builder::new()
-                .stack_size(32 * 1024 * 1024)
+                .stack_size(STACK_SIZE)
+                .name(format!("Runner Thread {}", i))
                 .spawn(move || {
                     // TODO: Set stack size carefully
                     loop {
                         match receiver.recv() {
                             Ok((checker, sender)) => {
-                                sender.send(checker.check()).unwrap();
+                                match sender.send(checker.check()) {
+                                    Ok(_) => {}
+                                    Err(_) => {}
+                                };
                             }
                             Err(_) => {
                                 break;
@@ -75,14 +82,10 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> CheckerRunner<
                 })
                 .unwrap();
         }
-        Self { sender: s }
+        Self { sender: s, receiver: r }
     }
-    fn run(&self, checker: ImmutableChecker<A, S, M>) -> bool {
-        let (s, r) = unbounded();
-        match self.sender.try_send((checker.clone(), s)) {
-            Ok(()) => r.recv().unwrap(),
-            Err(_) => checker.check(),
-        }
+    fn run(&self, checker: ImmutableChecker<A, S, M>, sender: Sender<bool>) {
+        self.sender.send((checker.clone(), sender.clone())).unwrap();
     }
 }
 
@@ -120,6 +123,7 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
     }
     pub fn check(&self) -> bool {
         let mut ret = false;
+        let (sender, receiver) = unbounded();
         for (index, entry) in self.history.iter().enumerate() {
             match entry.data {
                 EntryData::Invoke(invoke) => {
@@ -150,12 +154,7 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
                                 model.get_state(),
                                 self.check_runner.clone(),
                             );
-                            let res = self.check_runner.run(sub_checker);// TODO: main thread will block at here. `Future` may be needed for this situation.
-
-                            if res {
-                                ret = true;
-                                break;
-                            }
+                            self.check_runner.run(sub_checker, sender.clone());
                         } else {
                             ret = true;
                             break;
@@ -165,6 +164,42 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
                 _ => {
                     break;
                 }
+            }
+        }
+
+        drop(sender);
+        let mut sel = Select::new();
+        let recv_op = sel.recv(&receiver);
+        let help_op = sel.recv(&self.check_runner.receiver);
+
+        loop {
+            let op = sel.select();
+            if op.index() == recv_op {
+                match op.recv(&receiver) {
+                    Ok(val) => {
+                        if val {
+                            ret = true;
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        break;
+                    }
+                }
+            } else if op.index() == help_op {
+                match op.recv(&self.check_runner.receiver) {
+                    Ok((checker, sender)) => {
+                        match sender.send(checker.check()) {
+                            Ok(_) => {}
+                            Err(_) => {}
+                        }
+                    }
+                    Err(_) => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                unreachable!()
             }
         }
         return ret;
@@ -230,7 +265,12 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, R: Runner<A>>
         let im_checker: ImmutableChecker<A, S, M> =
             ImmutableChecker::new(history, init_state, check_runner.clone());
 
-        im_checker.check()
+        return thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .name(String::from("Main Check Thread"))
+            .spawn(move || {
+                im_checker.check()
+            }).unwrap().join().unwrap();
     }
     pub fn finish_prepare(&mut self) {
         drop(self.entry_sender.take().unwrap());

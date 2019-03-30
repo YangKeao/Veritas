@@ -82,10 +82,10 @@ impl Model<QueueAction, VecDeque<u32>> for QueueModel {
 fn crossbeam_queue_single_thread_test() {
     let mut checker: Checker<QueueAction, VecDeque<u32>, QueueModel, QueueRunner> = Checker::new();
     let mut push_history = Vec::new();
-    for i in 0..1000 {
+    for i in 0..100 {
         push_history.push(QueueRequest::PushAction(i));
     }
-    let pop_history = vec![QueueRequest::PopAction; 500];
+    let pop_history = vec![QueueRequest::PopAction; 100];
     checker.add_thread(push_history);
     checker.add_thread(pop_history);
     checker.finish_prepare();
@@ -112,5 +112,5 @@ fn crossbeam_queue_multiple_thread_test() {
         checker.add_thread(history);
     }
     checker.finish_prepare();
-    assert!(checker.check(VecDeque::new(), 16));
+    assert!(checker.check(VecDeque::new(), 4));
 }
