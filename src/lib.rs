@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 
-const STACK_SIZE: usize = 128 * 1024 * 1024;
+const STACK_SIZE: usize = 1024 * 1024 * 1024;
 
 pub trait Action: Copy + Clone + 'static {
     type Request: Copy + Clone + Send + Sync;
