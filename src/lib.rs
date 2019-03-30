@@ -201,7 +201,6 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
                 unreachable!()
             }
         }
-        // TODO: MapReduce model can be used to deal with the multithread strategy
         return ret;
     }
 }
