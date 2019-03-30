@@ -1,7 +1,7 @@
 extern crate crossbeam_channel;
 extern crate im;
 
-use crossbeam_channel::{unbounded, Sender, Receiver, Select};
+use crossbeam_channel::{unbounded, Receiver, Select, Sender};
 use im::vector::Vector;
 use std::cmp::PartialEq;
 use std::marker::PhantomData;
@@ -82,7 +82,10 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> CheckerRunner<
                 })
                 .unwrap();
         }
-        Self { sender: s, receiver: r }
+        Self {
+            sender: s,
+            receiver: r,
+        }
     }
     fn run(&self, checker: ImmutableChecker<A, S, M>, sender: Sender<bool>) {
         self.sender.send((checker.clone(), sender.clone())).unwrap();
@@ -188,20 +191,17 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> ImmutableCheck
                 }
             } else if op.index() == help_op {
                 match op.recv(&self.check_runner.receiver) {
-                    Ok((checker, sender)) => {
-                        match sender.send(checker.check()) {
-                            Ok(_) => {}
-                            Err(_) => {}
-                        }
-                    }
-                    Err(_) => {
-                        unreachable!()
-                    }
+                    Ok((checker, sender)) => match sender.send(checker.check()) {
+                        Ok(_) => {}
+                        Err(_) => {}
+                    },
+                    Err(_) => unreachable!(),
                 }
             } else {
                 unreachable!()
             }
         }
+        // TODO: MapReduce model can be used to deal with the multithread strategy
         return ret;
     }
 }
@@ -268,9 +268,10 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, R: Runner<A>>
         return thread::Builder::new()
             .stack_size(STACK_SIZE)
             .name(String::from("Main Check Thread"))
-            .spawn(move || {
-                im_checker.check()
-            }).unwrap().join().unwrap();
+            .spawn(move || im_checker.check())
+            .unwrap()
+            .join()
+            .unwrap();
     }
     pub fn finish_prepare(&mut self) {
         drop(self.entry_sender.take().unwrap());
