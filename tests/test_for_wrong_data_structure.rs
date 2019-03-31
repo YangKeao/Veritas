@@ -101,5 +101,5 @@ fn single_thread_stack_test() {
     checker.add_thread(history);
     checker.finish_prepare();
 
-    assert_eq!(checker.check(vec![], 4), false);
+    assert_eq!(checker.check(vec![], 4, 1024 * 1024 * 1024), false);
 }

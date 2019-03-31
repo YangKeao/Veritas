@@ -10,8 +10,6 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 
-const STACK_SIZE: usize = 1024 * 1024 * 1024;
-
 pub trait Action: Copy + Clone + 'static {
     type Request: Copy + Clone + Send + Sync;
     type Response: Copy + Clone + Send + Sync + PartialEq + Default;
@@ -57,12 +55,12 @@ pub struct CheckerRunner<A: Action, S: Sync + Send + Clone + 'static, M: Model<A
     pub receiver: Receiver<(ImmutableChecker<A, S, M>, Sender<bool>)>,
 }
 impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>> CheckerRunner<A, S, M> {
-    fn new(thread_num: usize) -> Self {
+    fn new(thread_num: usize, stack_size: usize) -> Self {
         let (s, r) = unbounded::<(ImmutableChecker<A, S, M>, Sender<bool>)>();
         for i in 0..thread_num {
             let receiver = r.clone();
             thread::Builder::new()
-                .stack_size(STACK_SIZE)
+                .stack_size(stack_size)
                 .name(format!("Runner Thread {}", i))
                 .spawn(move || {
                     // TODO: Set stack size carefully
@@ -258,14 +256,14 @@ impl<A: Action, S: Sync + Send + Clone + 'static, M: Model<A, S>, R: Runner<A>>
             }
         })));
     }
-    pub fn check(&mut self, init_state: S, thread_num: usize) -> bool {
+    pub fn check(&mut self, init_state: S, thread_num: usize, stack_size: usize) -> bool {
         let history = Vector::from(self.history.read().unwrap().clone());
-        let check_runner = Arc::new(CheckerRunner::new(thread_num));
+        let check_runner = Arc::new(CheckerRunner::new(thread_num, stack_size));
         let im_checker: ImmutableChecker<A, S, M> =
             ImmutableChecker::new(history, init_state, check_runner.clone());
 
         return thread::Builder::new()
-            .stack_size(STACK_SIZE)
+            .stack_size(stack_size)
             .name(String::from("Main Check Thread"))
             .spawn(move || im_checker.check())
             .unwrap()
@@ -353,6 +351,6 @@ mod test {
         checker.add_thread(history);
         checker.finish_prepare();
 
-        assert!(checker.check(vec![], 4));
+        assert!(checker.check(vec![], 4, 1024 * 1024 * 1024));
     }
 }

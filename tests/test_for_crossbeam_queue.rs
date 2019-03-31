@@ -90,7 +90,7 @@ fn crossbeam_queue_single_thread_test() {
     checker.add_thread(pop_history);
     checker.finish_prepare();
 
-    assert!(checker.check(VecDeque::new(), 4));
+    assert!(checker.check(VecDeque::new(), 4, 1024 * 1024 * 1024));
 }
 
 #[test]
@@ -112,5 +112,5 @@ fn crossbeam_queue_multiple_thread_test() {
         checker.add_thread(history);
     }
     checker.finish_prepare();
-    assert!(checker.check(VecDeque::new(), 4));
+    assert!(checker.check(VecDeque::new(), 4, 1024 * 1024 * 1024));
 }
